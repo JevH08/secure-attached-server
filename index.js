@@ -9,8 +9,8 @@ const app = express();
 var server = http.createServer(app);
 
 const connection = mysql.createConnection({
-    host: "kembang.in",
-    user: "andrew",
+    host: "localhost",
+    user: "root",
     password: "password",
     database: "secure-attached-db"
 });
