@@ -4,15 +4,17 @@ const mysql = require("mysql");
 const http = require('http');
 const openpgp = require("openpgp");
 const fs = require("fs");
+require('dotenv').config()
 
 const app = express();
-var server = http.createServer(app);
 
+var server = http.createServer(app);
+console.log(process.env.DB_USERNAME)
 const connection = mysql.createConnection({
     host: "localhost",
-    user: "root",
-    password: "password",
-    database: "secure-attached-db"
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
 });
 
 server.listen(3000);
@@ -145,7 +147,45 @@ app.get("/user/register", (req, res) => {
             // insert success
 
             res.json(200, {
-                msg: "Student Registered Succesfully",
+                msg: "Registered Succesfully",
+            })
+        })
+
+    }
+});
+
+app.get("/user/login", (req, res) => {
+    console.log(req.query);
+    let email = req.query.email;
+    let password = req.query.password;
+
+    let errEmail = validateEmail(email); // validate email
+    let errPassword = validatePassword(password); // validate password
+
+    if (errEmail.length || errPassword.length) {
+        res.json(200, {
+            msg: "Validation Failed",
+            errors: {
+                email: errEmail,
+                password: errPassword
+            }
+        });
+    }
+    else {
+        let query = `SELECT * FROM USER WHERE user_email = '${email}' AND user_password = '${password}'`;
+
+        connection.query(query, (err, result) => {
+            if (err) {
+                // error internal
+                res.json(500, {
+                    msg: "Some thing went wrong please try again"
+                })
+            }
+
+            // insert success
+
+            res.json(200, {
+                msg: "Login Succesfully",
             })
         })
 
