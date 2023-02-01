@@ -149,6 +149,7 @@ async function decrypt(private_key_input, passphrase_input, file_location_input)
 }
 
 app.post("/user/register", (req, result) => {
+    console.log(req);
     let email = req.body.email;
     let username = req.body.username;
     let password = req.body.password;
