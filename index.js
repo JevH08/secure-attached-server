@@ -1,14 +1,17 @@
 const express = require("express");
-const bodyParser = require("body-parser");
 const mysql = require("mysql");
 const http = require('http');
 const openpgp = require("openpgp");
 const fs = require("fs");
+const bodyParser = require('body-parser');
+const md5 = require('md5');
 require('dotenv').config()
-
 const app = express();
 
+app.use(bodyParser.urlencoded({ extended: true }));
+
 var server = http.createServer(app);
+
 console.log(process.env.DB_USERNAME)
 const connection = mysql.createConnection({
     host: "localhost",
@@ -20,9 +23,23 @@ const connection = mysql.createConnection({
 server.listen(3000);
 console.log('Express server started on port %s', server.address().port);
 
-connection.connect((err) => {
-    if (err) throw err;
-    console.log("Connected successfully to MySql server")
+app.use(function (req, res, next) {
+
+    // Website you wish to allow to connect
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+
+    // Request methods you wish to allow
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+
+    // Request headers you wish to allow
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
+
+    // Set to true if you need the website to include cookies in the requests sent
+    // to the API (e.g. in case you use sessions)
+    res.setHeader('Access-Control-Allow-Credentials', true);
+
+    // Pass to next layer of middleware
+    next();
 });
 
 app.get("/", (req, res) => {
@@ -33,7 +50,7 @@ function validateEmail(email) {
     let errors = [];
 
     // checks whether email is empty or not
-    if (email.length == 0) {
+    if (email.length === 0) {
         errors.push("Email Is Null");
     }
 
@@ -46,6 +63,22 @@ function validateEmail(email) {
     // checks whether email is valid or not usinf regular expression
     if (!(/^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/g.test(email))) {
         errors.push("Email Is Not Valid");
+    }
+
+    return errors;
+}
+
+function validateUsername(username) {
+    let errors = [];
+
+    // checks whether username is empty or not
+    if (username.length == 0) {
+        errors.push("Username Is Null");
+    }
+
+    // checks whether username length is more then 100 or not
+    if (username.length > 100) {
+        errors.push("Username Can not exceed 100 Character");
     }
 
     return errors;
@@ -86,7 +119,9 @@ async function generate(name_input, email_input, passphrase_input) {
     console.log(privateKeyArmored);
     console.log(publicKeyArmored);
 
-    //key public jangan lupa untuk disimpan di db sedangkan private kirim ke user
+    //private dan public key simpan di komputer pengguna
+    //sedangkan server hanya public key untuk contact
+    //passphrase tidak boleh diucapkan dalam aplikasi ini tapi bolehnya hanya di tempat lain
   }
 
 async function encrypt(file_location_input, public_key_input) {
@@ -113,51 +148,58 @@ async function decrypt(private_key_input, passphrase_input, file_location_input)
     fs.writeFileSync("decrypted.txt", decrypted.data);
 }
 
-app.get("/user/register", (req, res) => {
-    console.log(req.query);
-    let email = req.query.email;
-    let password = req.query.password;
-    let rePassword = req.query.rePassword;
+app.post("/user/register", (req, result) => {
+    let email = req.body.email;
+    let username = req.body.username;
+    let password = req.body.password;
+    let rePassword = req.body.rePassword;
 
     let errEmail = validateEmail(email); // validate email
+    let errUsername = validateUsername(username); // validate username
     let errPassword = validatePassword(password); // validate password
     let errrePassword = validateRepeatPassword(rePassword, password); // validate password repeat apakah sama
 
-    if (errEmail.length || errPassword.length || errrePassword.length) {
+    if (errEmail.length || errPassword.length || errrePassword.length || errUsername.length) {
         res.json(200, {
             msg: "Validation Failed",
             errors: {
                 email: errEmail,
+                username: errUsername,
                 password: errPassword,
                 rePassword: errrePassword
             }
         });
     }
     else {
-        let query = `INSERT INTO USER (user_id, user_email, user_password) VALUES ( NULL,'${email}', '${password}')`;
+        var hash = md5(password);
+        var sql = `INSERT INTO PENGGUNA (pengguna_id, pengguna_email, pengguna_password, pengguna_username) VALUES ( NULL,'${email}', '${hash}','${username}')`;
 
-        connection.query(query, (err, result) => {
-            if (err) {
-                // error internal
-                res.json(500, {
-                    msg: "Some thing went wrong please try again"
-                })
-            }
-
-            // insert success
-
-            res.json(200, {
-                msg: "Registered Succesfully",
+        connection.connect((err) => {
+            if (err) throw err;
+            console.log("Connected successfully to MySql server")
+            
+            connection.query(sql, function (err, res) {
+                console.log(result.status);
+                if (err) {
+                    console.log("Error starts here : " + err);
+            
+                    // error internal
+                    result.status(500).send({ message: 'Something went wrong please try again'})
+                }else{
+                    // insert success
+                    result.status(200).json({ message: 'Registered Succesfully'})
+                }
             })
-        })
-
+        });
+        //selalu ingat! res nya mysql dan express berbeda
     }
 });
 
-app.get("/user/login", (req, res) => {
-    console.log(req.query);
-    let email = req.query.email;
-    let password = req.query.password;
+app.get("/user/login", (req, result) => {
+    console.log(req.body);
+    let email = req.body.email;
+    let password = req.body.password;
+    let passHash = "default value";
 
     let errEmail = validateEmail(email); // validate email
     let errPassword = validatePassword(password); // validate password
@@ -172,17 +214,20 @@ app.get("/user/login", (req, res) => {
         });
     }
     else {
-        let query = `SELECT * FROM USER WHERE user_email = '${email}' AND user_password = '${password}'`;
-
+        bcrypt.hash(password, 10, function(err, hash) {
+                passHash = hash;
+            });
+        let query = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_password = '${password}'`;
+        
         connection.query(query, (err, result) => {
             if (err) {
                 // error internal
                 res.json(500, {
-                    msg: "Some thing went wrong please try again"
+                    msg: "Internal Error"
                 })
             }
 
-            // insert success
+            // login success
 
             res.json(200, {
                 msg: "Login Succesfully",
