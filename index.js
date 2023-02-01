@@ -7,10 +7,18 @@ const bodyParser = require('body-parser');
 const md5 = require('md5');
 require('dotenv').config()
 const app = express();
+const port = process.env.PORT || 3000;
 
-app.use(bodyParser.urlencoded({ extended: true }));
+// Parsing middleware
+// Parse application/x-www-form-urlencoded
+// app.use(bodyParser.urlencoded({ extended: false })); // Remove 
+app.use(express.urlencoded({ extended: true })); // New
+// Parse application/json
+// app.use(bodyParser.json()); // Remove
+app.use(express.json()); // New
 
-var server = http.createServer(app);
+// var server = http.createServer(app);
+app.listen(port, () => console.log(`Listening on port ${port}`))
 
 console.log(process.env.DB_USERNAME)
 const connection = mysql.createConnection({
@@ -20,8 +28,8 @@ const connection = mysql.createConnection({
     database: process.env.DB_NAME
 });
 
-server.listen(3000);
-console.log('Express server started on port %s', server.address().port);
+// server.listen(3000);
+// console.log('Express server started on port %s', server.address().port);
 
 app.use(function (req, res, next) {
 
@@ -112,9 +120,9 @@ function validateRepeatPassword(rePassword, password) {
 
 async function generate(name_input, email_input, passphrase_input) {
     const { privateKeyArmored, publicKeyArmored } = await openpgp.generateKey({
-      userIds: [{ name: name_input, email: email_input }],
-      curve: "ed25519",
-      passphrase: passphrase_input,
+        userIds: [{ name: name_input, email: email_input }],
+        curve: "ed25519",
+        passphrase: passphrase_input,
     });
     console.log(privateKeyArmored);
     console.log(publicKeyArmored);
@@ -122,7 +130,7 @@ async function generate(name_input, email_input, passphrase_input) {
     //private dan public key simpan di komputer pengguna
     //sedangkan server hanya public key untuk contact
     //passphrase tidak boleh diucapkan dalam aplikasi ini tapi bolehnya hanya di tempat lain
-  }
+}
 
 async function encrypt(file_location_input, public_key_input) {
     const plainData = fs.readFileSync(file_location_input);
@@ -133,23 +141,22 @@ async function encrypt(file_location_input, public_key_input) {
 
     //public key yang berupa file akan di input dari front end
     fs.writeFileSync("encrypted.txt", encrypted.data);
-    }
+}
 
 async function decrypt(private_key_input, passphrase_input, file_location_input) {
     const privateKey = (await openpgp.key.readArmored([private_key_input])).keys[0];
     await privateKey.decrypt(passphrase_input);
-    
+
     const encryptedData = fs.readFileSync(file_location_input);
     const decrypted = await openpgp.decrypt({
         message: await openpgp.message.readArmored(encryptedData),
         privateKeys: [privateKey],
     });
-    
+
     fs.writeFileSync("decrypted.txt", decrypted.data);
 }
 
 app.post("/user/register", (req, result) => {
-    console.log(req);
     let email = req.body.email;
     let username = req.body.username;
     let password = req.body.password;
@@ -161,7 +168,7 @@ app.post("/user/register", (req, result) => {
     let errrePassword = validateRepeatPassword(rePassword, password); // validate password repeat apakah sama
 
     if (errEmail.length || errPassword.length || errrePassword.length || errUsername.length) {
-        res.json(200, {
+        result.status(200).json({
             msg: "Validation Failed",
             errors: {
                 email: errEmail,
@@ -173,22 +180,22 @@ app.post("/user/register", (req, result) => {
     }
     else {
         var hash = md5(password);
-        var sql = `INSERT INTO PENGGUNA (pengguna_id, pengguna_email, pengguna_password, pengguna_username) VALUES ( NULL,'${email}', '${hash}','${username}')`;
+        var sql = `INSERT INTO user (user_id, user_email, user_password) VALUES ( NULL,'${email}', '${hash}')`;
 
         connection.connect((err) => {
             if (err) throw err;
             console.log("Connected successfully to MySql server")
-            
+
             connection.query(sql, function (err, res) {
                 console.log(result.status);
                 if (err) {
                     console.log("Error starts here : " + err);
-            
+
                     // error internal
-                    result.status(500).send({ message: 'Something went wrong please try again'})
-                }else{
+                    result.status(500).send({ message: 'Something went wrong please try again' })
+                } else {
                     // insert success
-                    result.status(200).json({ message: 'Registered Succesfully'})
+                    result.status(200).json({ message: 'Registered Succesfully' })
                 }
             })
         });
@@ -215,11 +222,11 @@ app.get("/user/login", (req, result) => {
         });
     }
     else {
-        bcrypt.hash(password, 10, function(err, hash) {
-                passHash = hash;
-            });
+        bcrypt.hash(password, 10, function (err, hash) {
+            passHash = hash;
+        });
         let query = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_password = '${password}'`;
-        
+
         connection.query(query, (err, result) => {
             if (err) {
                 // error internal
