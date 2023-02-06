@@ -168,8 +168,8 @@ app.post("/user/register", (req, result) => {
     let errrePassword = validateRepeatPassword(rePassword, password); // validate password repeat apakah sama
 
     if (errEmail.length || errPassword.length || errrePassword.length || errUsername.length) {
-        result.status(200).json({
-            msg: "Validation Failed",
+        result.status(400).json({
+            message: "Validation Failed",
             errors: {
                 email: errEmail,
                 username: errUsername,
@@ -180,14 +180,13 @@ app.post("/user/register", (req, result) => {
     }
     else {
         var hash = md5(password);
-        var sql = `INSERT INTO user (user_id, user_email, user_password) VALUES ( NULL,'${email}', '${hash}')`;
+        var sql = `INSERT INTO pengguna (pengguna_id, pengguna_email, pengguna_password, pengguna_username) VALUES ( NULL,'${email}', '${hash}', '${username}')`;
 
         connection.connect((err) => {
             if (err) throw err;
             console.log("Connected successfully to MySql server")
 
             connection.query(sql, function (err, res) {
-                console.log(result.status);
                 if (err) {
                     console.log("Error starts here : " + err);
 
@@ -203,18 +202,16 @@ app.post("/user/register", (req, result) => {
     }
 });
 
-app.get("/user/login", (req, result) => {
-    console.log(req.body);
+app.post("/user/login", (req, result) => {
     let email = req.body.email;
     let password = req.body.password;
-    let passHash = "default value";
 
     let errEmail = validateEmail(email); // validate email
     let errPassword = validatePassword(password); // validate password
 
     if (errEmail.length || errPassword.length) {
-        res.json(200, {
-            msg: "Validation Failed",
+        res.json(400, {
+            message: "Validation Failed",
             errors: {
                 email: errEmail,
                 password: errPassword
@@ -222,24 +219,25 @@ app.get("/user/login", (req, result) => {
         });
     }
     else {
-        bcrypt.hash(password, 10, function (err, hash) {
-            passHash = hash;
-        });
-        let query = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_password = '${password}'`;
+        var hash = md5(password);
 
-        connection.query(query, (err, result) => {
+        let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_password = '${hash}'`;
+
+        connection.query(sql, function (err, res) {
             if (err) {
+                console.log("Error starts here : " + err);
                 // error internal
-                res.json(500, {
-                    msg: "Internal Error"
-                })
-            }
-
-            // login success
-
-            res.json(200, {
-                msg: "Login Succesfully",
+                result.status(500).send({ message: 'Something went wrong please try again' })
+            } else {
+                // insert success
+                console.log(res[0].pengguna_email);
+                result.status(200).json({ message: 'Logged In Succesfully',
+                pengguna: {
+                    email_content: res[0].pengguna_email,
+                    username_content: res[0].pengguna_username
+                } 
             })
+            }
         })
 
     }
