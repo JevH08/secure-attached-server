@@ -242,3 +242,71 @@ app.post("/user/login", (req, result) => {
 
     }
 });
+
+app.post("/key/generate", (req, result) => {
+    let email = req.body.email;
+    let username = req.body.username;
+    let passphrase = req.body.passphrase;
+
+    let errEmail = validateEmail(email); // validate email
+    let errUsername = validateUsername(email); // validate username
+
+    if (errEmail.length || errUsername.length) {
+        res.json(400, {
+            message: "Validation Failed",
+            errors: {
+                email: errEmail,
+                username: errUsername
+            }
+        });
+    }
+    else {
+        (async () => {
+            const { privateKey, publicKey, revocationCertificate } = await openpgp.generateKey({
+                type: 'ecc', // Type of the key, defaults to ECC
+                curve: 'curve25519', // ECC curve name, defaults to curve25519
+                userIDs: [{ name: username, email: email }], // you can pass multiple user IDs
+                passphrase: passphrase, // protects the private key
+                format: 'armored' // output key format, defaults to 'armored' (other options: 'binary' or 'object')
+            });
+        
+            // console.log(privateKey);     // '-----BEGIN PGP PRIVATE KEY BLOCK ... '
+            // console.log(publicKey);      // '-----BEGIN PGP PUBLIC KEY BLOCK ... '
+            // console.log(revocationCertificate); // '-----BEGIN PGP PUBLIC KEY BLOCK ... '
+
+            let keyPrivate = Buffer.from(privateKey).toString('base64');
+            let keyPublic = Buffer.from(publicKey).toString('base64');
+
+            let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}'`;
+    
+            connection.query(sql, function (err, res) {
+                if (err) {
+                    console.log("Error starts here : " + err);
+                    // error internal
+                    result.status(500).send({ message: 'Something went wrong please try again' })
+                } else {
+                    // get pengguna success
+                    
+                    let sqlKunci = `INSERT INTO kunci (kunci_id, kunci_content, fk_pengguna, kunci_status) VALUES ( NULL,'${keyPublic}', '${res[0].pengguna_id}', '1')`;
+            
+                    connection.query(sqlKunci, function (err, res2) {
+                        if (err) {
+                            console.log("Error starts here : " + err);
+                            // error internal
+                            result.status(500).send({ message: 'Something went wrong please try again' })
+                        } else {
+                            // insert success
+                            result.status(200).json({ message: 'Key Generated Succesfully',
+                            key: {
+                                private: keyPrivate,
+                                public: keyPublic
+                            } 
+                        })
+                        }
+                    })
+                }
+            })
+            
+        })();
+    }
+});
