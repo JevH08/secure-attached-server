@@ -234,6 +234,7 @@ app.post("/user/login", (req, result) => {
                 // insert success
                 result.status(200).json({ message: 'Logged In Succesfully',
                 pengguna: {
+                    id_content: res[0].pengguna_id,
                     email_content: res[0].pengguna_email,
                     username_content: res[0].pengguna_username
                 } 
