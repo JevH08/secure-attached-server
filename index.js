@@ -314,8 +314,10 @@ app.post("/key/generate", (req, result) => {
 app.post("/file/encryption", upload.single('file'), (req, result) => {
     let originalname = req.file.originalname;
     let filename = req.file.filename;
-    let filepath = req.file.path
+    let filepath = req.file.path;
     let email = req.body.email;
+    let passwordFile = req.body.passwordFile;
+    let id_pengirim = req.body.id_pengirim;
 
     let errEmail = validateEmail(email); // validate email
 
@@ -353,62 +355,130 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
                         let encodedPublicKey = res2[0].kunci_content;
                         let buff = Buffer.from(encodedPublicKey, 'base64');
                         let publicKeyArmored = buff.toString('utf-8');
-                        enkrip();
-                        async function enkrip() {
-                            const plainData = fs.readFileSync(filepath,'utf8');
-                            const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
 
-                            const encrypted = await openpgp.encrypt({
-                                message: await openpgp.createMessage({text: plainData}),
-                                encryptionKeys: publicKey
-                            });
+                        // tipe text jangan lupa tambahkan untuk tipe zip lihat github
+                        // pengecekan tipe extension
+                        if(originalname.includes(".txt")){
+                            enkrip();
+                            async function enkrip() {
+                                const plainData = fs.readFileSync(filepath,'utf8');
+                                const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
+    
+                                const encrypted = await openpgp.encrypt({
+                                    message: await openpgp.createMessage({text: plainData}),
+                                    encryptionKeys: publicKey
+                                });
+    
+                                console.log(encrypted);
+                                let fk_penerima = res2[0].fk_pengguna;
+                                let filepathBaru = "\\" + filename ;
+                                let date_now = new Date(year, month, day);
+    
+                                // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
+                                let sqlHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filepathBaru}','${id_pengirim}','${fk_penerima}', '${date_now}', '1')`;
+                                connection.query(sqlHistory, function (err, res3) {
+                                    if (err) {
+                                        console.log("Error starts here : " + err);
+                                        // error internal
+                                        result.status(500).send({ message: 'Insert History fail' })
+                                    } else {
+                                        // history success
+                                        console.log("insert history sukses");
+    
+                                        let sqlGetHistoryId = `SELECT * FROM history WHERE history_link = '${filepathBaru}'`;
+                                        connection.query(sqlGetHistoryId, function (err, res4) {
+                                            if (err) {
+                                                console.log("Error starts here : " + err);
+                                                // error internal
+                                                result.status(500).send({ message: 'Insert History fail' })
+                                            } else {
+                                                // ambil data history
+                                                let fk_history = res4[0].history_id;
+                                                let filepathServer = "public\\" + filepathBaru;
+                                                //file content adalah filepath pada directory server
+                                                let sqlFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${filepathServer}','txt','${fk_history}', '1')`;
+                                                connection.query(sqlFile, function (err, res5) {
+                                                    if (err) {
+                                                        console.log("Error starts here : " + err);
+                                                        // error internal
+                                                        result.status(500).send({ message: 'Insert History fail' })
+                                                    } else {
+                                                        // history success
+                                                        console.log("insert file sukses");
+    
+                                                        fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
+                                                        result.status(200).json({ message: 'File Encrypted Succesfully'})
+                                                    }
+                                                })
+                                            }
+                                        })
+                                    }
+                                })
+                            };
+                        }else if(originalname.includes(".zip")){
+                            // jika zip
+                            enkrip();
+                            async function enkrip() {
+                                const fileToUint8Array = fs.readFileSync(filepath);
 
-                            console.log(encrypted);
-                            let fk_penerima = res2[0].fk_pengguna;
-                            let filepathBaru = "\\" + filename ;
-                            let date_now = new Date();
+                                const fileForOpenPGP = await openpgp.createMessage({ binary: new Uint8Array(fileToUint8Array) });
+                                
+                                console.log(fileToUint8Array);
+                                const message = await openpgp.createMessage({ binary: fileToUint8Array });
+                                const encrypted = await openpgp.encrypt({
+                                    message, // input as Message object
+                                    passwords: [passwordFile], // multiple passwords possible
+                                    format: 'binary' // don't ASCII armor (for Uint8Array output)
+                                });
 
-                            // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
-                            let sqlHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filepathBaru}','${fk_penerima}','${fk_penerima}', '${date_now}', '1')`;
-                            connection.query(sqlHistory, function (err, res3) {
-                                if (err) {
-                                    console.log("Error starts here : " + err);
-                                    // error internal
-                                    result.status(500).send({ message: 'Insert History fail' })
-                                } else {
-                                    // history success
-                                    console.log("insert history sukses");
+                                let fk_penerima = res2[0].fk_pengguna;
+                                let filepathBaru = "\\" + filename ;
+                                let date_now = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
 
-                                    let sqlGetHistoryId = `SELECT * FROM history WHERE history_link = '${filepathBaru}'`;
-                                    connection.query(sqlGetHistoryId, function (err, res4) {
-                                        if (err) {
-                                            console.log("Error starts here : " + err);
-                                            // error internal
-                                            result.status(500).send({ message: 'Insert History fail' })
-                                        } else {
-                                            // ambil data history
-                                            let fk_history = res4[0].history_id;
-                                            let filepathServer = "public\\" + filepathBaru;
-                                            //file content adalah filepath pada directory server
-                                            let sqlFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${filepathServer}','txt','${fk_history}', '1')`;
-                                            connection.query(sqlFile, function (err, res5) {
-                                                if (err) {
-                                                    console.log("Error starts here : " + err);
-                                                    // error internal
-                                                    result.status(500).send({ message: 'Insert History fail' })
-                                                } else {
-                                                    // history success
-                                                    console.log("insert file sukses");
-
-                                                    fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
-                                                    result.status(200).json({ message: 'File Encrypted Succesfully'})
-                                                }
-                                            })
-                                        }
-                                    })
-                                }
-                            })
-                        };
+                                // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
+                                let sqlHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filepathBaru}','${id_pengirim}','${fk_penerima}', '${date_now}', '1')`;
+                                connection.query(sqlHistory, function (err, res3) {
+                                    if (err) {
+                                        console.log("Error starts here : " + err);
+                                        // error internal
+                                        result.status(500).send({ message: 'Insert History fail' })
+                                    } else {
+                                        // history success
+                                        console.log("insert history sukses");
+    
+                                        let sqlGetHistoryId = `SELECT * FROM history WHERE history_link = '${filepathBaru}'`;
+                                        connection.query(sqlGetHistoryId, function (err, res4) {
+                                            if (err) {
+                                                console.log("Error starts here : " + err);
+                                                // error internal
+                                                result.status(500).send({ message: 'Insert History fail' })
+                                            } else {
+                                                // ambil data history
+                                                let fk_history = res4[0].history_id;
+                                                let filepathServer = "public\\" + filepathBaru;
+                                                //file content adalah filepath pada directory server
+                                                let sqlFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${filepathServer}','zip','${fk_history}', '1')`;
+                                                connection.query(sqlFile, function (err, res5) {
+                                                    if (err) {
+                                                        console.log("Error starts here : " + err);
+                                                        // error internal
+                                                        result.status(500).send({ message: 'Insert History fail' })
+                                                    } else {
+                                                        // history success
+                                                        console.log("insert file sukses");
+    
+                                                        fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
+                                                        result.status(200).json({ message: 'File Encrypted Succesfully'})
+                                                    }
+                                                })
+                                            }
+                                        })
+                                    }
+                                })
+                            };
+                        }else{
+                            result.status(500).send({ message: 'File not supported' })
+                        }
                     }
                 })
             }
