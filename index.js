@@ -6,6 +6,7 @@ const fs = require("fs");
 const bodyParser = require('body-parser');
 const multer = require("multer");
 const md5 = require('md5');
+const path = require("path");
 require('dotenv').config()
 const app = express();
 const port = process.env.PORT || 3000;
@@ -22,7 +23,7 @@ app.use(bodyParser.raw());// file
 // var server = http.createServer(app);
 app.listen(port, () => console.log(`Listening on port ${port}`))
 
-console.log(process.env.DB_USERNAME)
+// console.log(process.env.DB_USERNAME)
 const connection = mysql.createConnection({
     host: "localhost",
     user: process.env.DB_USERNAME,
@@ -212,7 +213,7 @@ app.post("/user/login", (req, result) => {
     let errPassword = validatePassword(password); // validate password
 
     if (errEmail.length || errPassword.length) {
-        res.json(400, {
+        result.json(400, {
             message: "Validation Failed",
             errors: {
                 email: errEmail,
@@ -512,6 +513,11 @@ app.post("/file/decryption", upload.single('key'), (req, result) => {
                 // get id penerima success
                 console.log("get id penerima sukses");
                 let history_id = res[0].history_id;
+                let history_time = res[0].history_time;
+                let date = history_time.getDay();
+                let month = history_time.getMonth();
+                let year = history_time.getYear();
+                let newFileName = "decrypted" + date + month + year + history_id;
                 let sqlFile = `SELECT * FROM FILE WHERE fk_history = '${history_id}'`;
 
                 connection.query(sqlFile, function (err, res2) {
@@ -541,16 +547,18 @@ app.post("/file/decryption", upload.single('key'), (req, result) => {
                                     passwords: [passwordTxt], // decrypt with password
                                     format: 'binary' // output as Uint8Array
                                 });
-                                let arraybuffer = Uint8Array.from(decrypted).buffer;
-                                console.log(decrypted);
-                                console.log(arraybuffer);
+                                //let arraybuffer = Uint8Array.from(decrypted).buffer;
+                                // console.log(arraybuffer);
+                                // var blob = new Blob([arraybuffer], {type: "application/zip"});
 
-                                var blob = new Blob([arraybuffer], {type: "application/zip"});
-                                console.log(blob);
-                                result.status(200).json({ 
-                                    message: 'File Encrypted Succesfully',
-                                    file: blob 
-                                })
+                                //var decryptedBlob = new Blob([decrypted], {type: "application/zip"});
+                                let downloadLink = __dirname + "\\public\\" + newFileName;
+                                fs.writeFileSync(downloadLink + ".zip", decrypted);
+                                console.log("Download di server sukses");
+                                console.log(downloadLink);
+
+                                result.status(200).json({ message: 'Download Success di Server', 
+                                download_link: newFileName});
                             }
                         }
                     }
@@ -558,4 +566,11 @@ app.post("/file/decryption", upload.single('key'), (req, result) => {
             }
         })
     }
+});
+
+app.get('/download/:directory', (req, res)=>{
+    var filename = req.params.directory;
+    console.log("ini directory pada /download : " + filename + ".zip");
+
+    res.download(path.resolve( __dirname + "\\public\\" + filename + ".zip"));
 });
