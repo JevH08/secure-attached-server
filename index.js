@@ -301,8 +301,7 @@ app.post("/key/generate", (req, result) => {
                             key: {
                                 private: keyPrivate,
                                 public: keyPublic
-                            } 
-                        })
+                            }})
                         }
                     })
                 }
@@ -486,136 +485,74 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
     }
 });
 
-// decryption belom diganti sama sekali
-app.post("/file/decryption", upload.fields([{name: 'file', maxCount: 1}, {name: 'key', maxCount: 1}]), (req, result) => {
-    //console.log(req.files.key[0].path);
+app.post("/file/decryption", upload.single('key'), (req, result) => {
+    //console.log(req.file);
     
-    let filename = req.files.file[0].filename;
-    let filepath = req.files.file[0].path;
-    let keypath = req.files.key[0].path
-    let email = req.body.email;
+    let downloadCode = req.body.down_code;
+    let passwordTxt = req.body.pass_txt;
 
-    let errEmail = validateEmail(email); // validate email
-
-    if (errEmail.length) {
-        res.json(400, {
-            message: "Validation Failed",
+    if (!downloadCode.length) {
+        result.json(400, {
+            message: "Bad Request",
             errors: {
-                email: errEmail
+                downCode: "Download code is not given"
             }
         });
     }
     else {
-        //mencari id penerima 
-        let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}'`;
+        //mencari link download dari database
+        let sql = `SELECT * FROM HISTORY WHERE history_link = '${downloadCode}'`;
     
         connection.query(sql, function (err, res) {
             if (err) {
                 console.log("Error starts here : " + err);
                 // error internal
-                result.status(500).send({ message: 'Select pengguna fail' })
+                result.status(500).send({ message: 'Download code not Exist' })
             } else {
                 // get id penerima success
                 console.log("get id penerima sukses");
-                let pengguna_id = res[0].pengguna_id
-                let sqlKunci = `SELECT * FROM KUNCI WHERE fk_pengguna = '${pengguna_id}'`;
+                let history_id = res[0].history_id;
+                let sqlFile = `SELECT * FROM FILE WHERE fk_history = '${history_id}'`;
 
-                connection.query(sqlKunci, function (err, res2) {
+                connection.query(sqlFile, function (err, res2) {
                     if (err) {
                         console.log("Error starts here : " + err);
                         // error internal
-                        result.status(500).send({ message: 'Select kunci fail' })
+                        result.status(500).send({ message: 'File not found' })
                     } else {
-                        // select fk pengguna di tabel kunci success
-                        console.log("get fk pengguna sukses");
-                        let encodedPublicKey = res2[0].kunci_content;
-                        let buff = Buffer.from(encodedPublicKey, 'base64');
+                        // ambil lokasi file dari database
+                        let directoryFile = res2[0].file_content;
+                        let fileType = res2[0].file_type;
 
-                        let publicKeyArmored = buff.toString('utf-8');
+                        if(fileType == "txt"){
+                            let keyName = req.file.filename;
+                            let keyDirectory = req.file.path;
 
-                        enkrip();
-                        async function enkrip() {
-                            const fileToUint8Array = fs.readFileSync(filepath);
+                        }else if(fileType == "zip"){
+                            const zipData = fs.readFileSync(__dirname + "\\" + directoryFile);
 
-                            // privateKeyToUint8Array berupa buffer
-                            const privateKeyToUint8Array = fs.readFileSync(keypath);
-                            const privateKeyBuffer = Buffer.from(privateKeyToUint8Array)
-                            const privateKeyString = privateKeyBuffer.toString();
+                            dekrip();
+                            async function dekrip() {
+                                const encryptedMessage = await openpgp.readMessage({
+                                    binaryMessage: zipData // parse encrypted bytes
+                                });
+                                const { data: decrypted } = await openpgp.decrypt({
+                                    message: encryptedMessage,
+                                    passwords: [passwordTxt], // decrypt with password
+                                    format: 'binary' // output as Uint8Array
+                                });
+                                let arraybuffer = Uint8Array.from(decrypted).buffer;
+                                console.log(decrypted);
+                                console.log(arraybuffer);
 
-                            const fileForOpenPGP = await openpgp.createMessage({ binary: new Uint8Array(fileToUint8Array) });
-                            
-                            //get public key
-                            const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
-
-                            //get private key
-                            //const privateKey = await openpgp.readKey({ binaryKey: privateKeyToUint8Array });
-
-                            //encrypt file here
-                            const encrypted = await openpgp.encrypt({
-                                message : fileForOpenPGP,
-                                encryptionKeys: publicKey, 
-                                format: 'binary'
-                            });
-
-                            const encryptedMessage = await openpgp.readMessage({
-                                binaryMessage: encrypted // parse encrypted bytes
-                            });
-
-                            const decryptionResponse = await openpgp.decrypt({
-                                message: encryptedMessage,
-                                decryptionKeys: privateKeyString, // decrypt with private key
-                                format: 'binary' // output as Uint8Array
-                            });
-
-                            console.log(decryptionResponse);
-
-                            const encryptedFile = encrypted.message.packets.write()
-
-                            let fk_penerima = res2[0].fk_pengguna;
-                            let filepathBaru = "\\" + filename ;
-                            let date_now = new Date();
-
-                            // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
-                            let sqlHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filepathBaru}','${fk_penerima}','${fk_penerima}', '${date_now}', '1')`;
-                            connection.query(sqlHistory, function (err, res3) {
-                                if (err) {
-                                    console.log("Error starts here : " + err);
-                                    // error internal
-                                    result.status(500).send({ message: 'Insert History fail' })
-                                } else {
-                                    // history success
-                                    console.log("insert history sukses");
-
-                                    let sqlGetHistoryId = `SELECT * FROM history WHERE history_link = '${filepathBaru}'`;
-                                    connection.query(sqlGetHistoryId, function (err, res4) {
-                                        if (err) {
-                                            console.log("Error starts here : " + err);
-                                            // error internal
-                                            result.status(500).send({ message: 'Insert History fail' })
-                                        } else {
-                                            // ambil data history
-                                            let fk_history = res4[0].history_id;
-                                            let filepathServer = "public\\" + filepathBaru;
-                                            //file content adalah filepath pada directory server
-                                            let sqlFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${filepathServer}','txt','${fk_history}', '1')`;
-                                            connection.query(sqlFile, function (err, res5) {
-                                                if (err) {
-                                                    console.log("Error starts here : " + err);
-                                                    // error internal
-                                                    result.status(500).send({ message: 'Insert History fail' })
-                                                } else {
-                                                    // history success
-                                                    console.log("insert file sukses");
-
-                                                    fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encryptedFile);
-                                                    result.status(200).json({ message: 'File Encrypted Succesfully'})
-                                                }
-                                            })
-                                        }
-                                    })
-                                }
-                            })
-                        };
+                                var blob = new Blob([arraybuffer], {type: "application/zip"});
+                                console.log(blob);
+                                result.status(200).json({ 
+                                    message: 'File Encrypted Succesfully',
+                                    file: blob 
+                                })
+                            }
+                        }
                     }
                 })
             }
