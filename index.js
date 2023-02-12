@@ -202,6 +202,7 @@ app.post("/user/register", (req, result) => {
             })
         });
         //selalu ingat! res nya mysql dan express berbeda
+        connection.end;
     }
 });
 
@@ -249,12 +250,14 @@ app.post("/key/generate", (req, result) => {
     let email = req.body.email;
     let username = req.body.username;
     let passphrase = req.body.passphrase;
-
+    let fk_pengguna = req.body.fk_pengguna;
+    
     let errEmail = validateEmail(email); // validate email
     let errUsername = validateUsername(email); // validate username
 
     if (errEmail.length || errUsername.length) {
-        res.json(400, {
+        console.log("masuk if");
+        result.json(400, {
             message: "Validation Failed",
             errors: {
                 email: errEmail,
@@ -263,7 +266,8 @@ app.post("/key/generate", (req, result) => {
         });
     }
     else {
-        (async () => {
+        generate();
+        async function generate() {
             const { privateKey, publicKey, revocationCertificate } = await openpgp.generateKey({
                 type: 'ecc', // Type of the key, defaults to ECC
                 curve: 'curve25519', // ECC curve name, defaults to curve25519
@@ -271,43 +275,48 @@ app.post("/key/generate", (req, result) => {
                 passphrase: passphrase, // protects the private key
                 format: 'armored' // output key format, defaults to 'armored' (other options: 'binary' or 'object')
             });
-        
-            // console.log(privateKey);     // '-----BEGIN PGP PRIVATE KEY BLOCK ... '
-            // console.log(publicKey);      // '-----BEGIN PGP PUBLIC KEY BLOCK ... '
-            // console.log(revocationCertificate); // '-----BEGIN PGP PUBLIC KEY BLOCK ... '
 
             let keyPrivate = Buffer.from(privateKey).toString('base64');
             let keyPublic = Buffer.from(publicKey).toString('base64');
 
-            let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}'`;
-    
-            connection.query(sql, function (err, res) {
-                if (err) {
-                    console.log("Error starts here : " + err);
-                    // error internal
-                    result.status(500).send({ message: 'Something went wrong please try again' })
-                } else {
-                    // get pengguna success
-                    
-                    let sqlKunci = `INSERT INTO kunci (kunci_id, kunci_content, fk_pengguna, kunci_status) VALUES ( NULL,'${keyPublic}', '${res[0].pengguna_id}', '1')`;
-            
-                    connection.query(sqlKunci, function (err, res2) {
-                        if (err) {
-                            console.log("Error starts here : " + err);
-                            // error internal
-                            result.status(500).send({ message: 'Something went wrong please try again' })
-                        } else {
-                            // insert success
-                            result.status(200).json({ message: 'Key Generated Succesfully',
-                            key: {
-                                private: keyPrivate,
-                                public: keyPublic
-                            }})
+            let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_id = '${fk_pengguna}'`;
+            try {
+                connection.query(sql, function (err, res) {
+                    if (res.length < 1) {
+                        // error internal
+                        result.status(500).send({ message: 'Logged in User and email mismatch' })
+                    } else {
+                        // get pengguna success
+                        if(res.length < 1){
+                            let sqlEmptyKunci = `UPDATE kunci SET kunci_status = 0 WHERE fk_pengguna = '${fk_pengguna}'`;
+                            connection.query(sqlEmptyKunci, function (err, res) {
+                                console.log(res);
+                            })
                         }
-                    })
-                }
-            })
-        });
+
+                        let sqlKunci = `INSERT INTO kunci (kunci_id, kunci_content, fk_pengguna, kunci_status) VALUES ( NULL,'${keyPublic}', '${res[0].pengguna_id}', '1')`;
+                
+                        connection.query(sqlKunci, function (err, res2) {
+                            if (err) {
+                                console.log("Error starts here : " + err);
+                                // error internal
+                                result.status(500).send({ message: 'Something went wrong please try again' })
+                            } else {
+                                // insert success
+                                result.status(200).json({ message: 'Key Generated Succesfully',
+                                key: {
+                                    private: keyPrivate,
+                                    public: keyPublic
+                                }})
+                            }
+                        })
+                    }
+                })
+            } catch (error) {
+                console.log(error);
+            }
+            
+        };
     }
 });
 
@@ -372,7 +381,7 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
                                 console.log(encrypted);
                                 let fk_penerima = res2[0].fk_pengguna;
                                 let filepathBaru = "\\" + filename ;
-                                let date_now = new Date(year, month, day);
+                                let date_now = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
     
                                 // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
                                 let sqlHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filepathBaru}','${id_pengirim}','${fk_penerima}', '${date_now}', '1')`;
@@ -487,7 +496,6 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
 });
 
 app.post("/file/decryption", upload.single('key'), (req, result) => {
-    //console.log(req.file);
     
     let downloadCode = req.body.down_code;
     let passwordTxt = req.body.pass_txt;
@@ -533,7 +541,28 @@ app.post("/file/decryption", upload.single('key'), (req, result) => {
                         if(fileType == "txt"){
                             let keyName = req.file.filename;
                             let keyDirectory = req.file.path;
+                            const txtData = fs.readFileSync(__dirname + "\\" + directoryFile);
+                            const privateKeyArmored = fs.readFileSync(__dirname + "\\" + keyDirectory);
 
+                            console.log(txtData.toString());
+                            dekrip();
+                            async function dekrip() {
+                                const passphrase = passwordTxt;
+                                const privateKey = await openpgp.decryptKey({
+                                    privateKey: await openpgp.readPrivateKey({ armoredKey: privateKeyArmored.toString()}),
+                                    passphrase
+                                });
+
+                                const message = await openpgp.readMessage({
+                                    armoredMessage: txtData.toString() // parse armored message
+                                });
+                                const { data: decrypted } = await openpgp.decrypt({
+                                    message,
+                                    decryptionKeys: privateKey
+                                });
+                                console.log(decrypted); // 'Hello, World!'
+                                result.status(200).json({ message: 'txt', file: decrypted});
+                            }
                         }else if(fileType == "zip"){
                             const zipData = fs.readFileSync(__dirname + "\\" + directoryFile);
 
@@ -547,17 +576,12 @@ app.post("/file/decryption", upload.single('key'), (req, result) => {
                                     passwords: [passwordTxt], // decrypt with password
                                     format: 'binary' // output as Uint8Array
                                 });
-                                //let arraybuffer = Uint8Array.from(decrypted).buffer;
-                                // console.log(arraybuffer);
-                                // var blob = new Blob([arraybuffer], {type: "application/zip"});
-
-                                //var decryptedBlob = new Blob([decrypted], {type: "application/zip"});
                                 let downloadLink = __dirname + "\\public\\" + newFileName;
                                 fs.writeFileSync(downloadLink + ".zip", decrypted);
                                 console.log("Download di server sukses");
                                 console.log(downloadLink);
 
-                                result.status(200).json({ message: 'Download Success di Server', 
+                                result.status(200).json({ message: 'zip', 
                                 download_link: newFileName});
                             }
                         }
