@@ -185,22 +185,17 @@ app.post("/user/register", (req, result) => {
         var hash = md5(password);
         var sql = `INSERT INTO pengguna (pengguna_id, pengguna_email, pengguna_password, pengguna_username) VALUES ( NULL,'${email}', '${hash}', '${username}')`;
 
-        connection.connect((err) => {
-            if (err) throw err;
-            console.log("Connected successfully to MySql server")
+        connection.query(sql, function (err, res) {
+            if (err) {
+                console.log("Error starts here : " + err);
 
-            connection.query(sql, function (err, res) {
-                if (err) {
-                    console.log("Error starts here : " + err);
-
-                    // error internal
-                    result.status(500).send({ message: 'Something went wrong please try again' })
-                } else {
-                    // insert success
-                    result.status(200).json({ message: 'Registered Succesfully' })
-                }
-            })
-        });
+                // error internal
+                result.status(500).send({ message: 'Something went wrong please try again' })
+            } else {
+                // insert success
+                result.status(200).json({ message: 'Registered Succesfully' })
+            }
+        })
         //selalu ingat! res nya mysql dan express berbeda
         connection.end;
     }
