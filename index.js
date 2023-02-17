@@ -411,7 +411,8 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
                                                         console.log("insert file sukses");
     
                                                         fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
-                                                        result.status(200).json({ message: 'File Encrypted Succesfully'})
+                                                        result.status(200).json({ message: 'File Encrypted Succesfully', 
+                                                        download_link: filepathBaru})
                                                     }
                                                 })
                                             }
@@ -472,7 +473,8 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
                                                         console.log("insert file sukses");
     
                                                         fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
-                                                        result.status(200).json({ message: 'File Encrypted Succesfully'})
+                                                        result.status(200).json({ message: 'File Encrypted Succesfully', 
+                                                        download_link: filepathBaru})
                                                     }
                                                 })
                                             }
