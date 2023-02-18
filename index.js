@@ -595,3 +595,24 @@ app.get('/download/:directory', (req, res)=>{
 
     res.download(path.resolve( __dirname + "\\public\\" + filename + ".zip"));
 });
+
+app.get('/upload/history/:id_pengirim', (req, result)=>{
+    var id_pengirim = req.params.id_pengirim;
+
+    let sqlHistory = `SELECT h.history_id, h.history_link, h.history_time, p.pengguna_username FROM history h, pengguna p WHERE h.history_fk_sender = '${id_pengirim}' AND h.history_fk_receiver = p.pengguna_id AND h.history_status = '1'`;
+
+    connection.query(sqlHistory, function (err, res) {
+        if (err) {
+            console.log("Error starts here : " + err);
+            // error internal
+            result.status(500).send({ message: 'Get History fail' })
+        } else {
+            // history success
+            console.log("get history sukses");
+            console.log(res);
+
+            result.status(200).json({ message: 'Upload History', 
+            history: res});
+        }
+    })
+});
