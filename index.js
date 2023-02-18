@@ -326,7 +326,7 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
     let errEmail = validateEmail(email); // validate email
 
     if (errEmail.length) {
-        res.json(400, {
+        result.json(400, {
             message: "Validation Failed",
             errors: {
                 email: errEmail
@@ -345,7 +345,7 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
             } else {
                 // get id penerima success
                 console.log("get id penerima sukses");
-                let pengguna_id = res[0].pengguna_id
+                let pengguna_id = res[0].pengguna_id;
                 let sqlKunci = `SELECT * FROM KUNCI WHERE fk_pengguna = '${pengguna_id}'`;
 
                 connection.query(sqlKunci, function (err, res2) {
@@ -375,7 +375,7 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
     
                                 console.log(encrypted);
                                 let fk_penerima = res2[0].fk_pengguna;
-                                let filepathBaru = "\\" + filename ;
+                                let filepathBaru = "\\" + filename;
                                 let date_now = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
     
                                 // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
@@ -412,7 +412,7 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
     
                                                         fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
                                                         result.status(200).json({ message: 'File Encrypted Succesfully', 
-                                                        download_link: filepathBaru})
+                                                        download_link: filename})
                                                     }
                                                 })
                                             }
