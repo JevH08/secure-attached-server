@@ -121,44 +121,6 @@ function validateRepeatPassword(rePassword, password) {
     return errors;
 }
 
-async function generate(name_input, email_input, passphrase_input) {
-    const { privateKeyArmored, publicKeyArmored } = await openpgp.generateKey({
-        userIds: [{ name: name_input, email: email_input }],
-        curve: "ed25519",
-        passphrase: passphrase_input,
-    });
-    console.log(privateKeyArmored);
-    console.log(publicKeyArmored);
-
-    //private dan public key simpan di komputer pengguna
-    //sedangkan server hanya public key untuk contact
-    //passphrase tidak boleh diucapkan dalam aplikasi ini tapi bolehnya hanya di tempat lain
-}
-
-async function encrypt(file_location_input, public_key_input) {
-    const plainData = fs.readFileSync(file_location_input);
-    const encrypted = await openpgp.encrypt({
-        message: openpgp.message.fromText(plainData),
-        publicKeys: (await openpgp.key.readArmored(public_key_input)).keys,
-    });
-
-    //public key yang berupa file akan di input dari front end
-    fs.writeFileSync("encrypted.txt", encrypted.data);
-}
-
-async function decrypt(private_key_input, passphrase_input, file_location_input) {
-    const privateKey = (await openpgp.key.readArmored([private_key_input])).keys[0];
-    await privateKey.decrypt(passphrase_input);
-
-    const encryptedData = fs.readFileSync(file_location_input);
-    const decrypted = await openpgp.decrypt({
-        message: await openpgp.message.readArmored(encryptedData),
-        privateKeys: [privateKey],
-    });
-
-    fs.writeFileSync("decrypted.txt", decrypted.data);
-}
-
 app.post("/user/register", (req, result) => {
     let email = req.body.email;
     let username = req.body.username;
@@ -261,69 +223,49 @@ app.post("/key/generate", (req, result) => {
         });
     }
     else {
-        generate();
-        async function generate() {
-            const { privateKey, publicKey, revocationCertificate } = await openpgp.generateKey({
-                type: 'ecc', // Type of the key, defaults to ECC
-                curve: 'curve25519', // ECC curve name, defaults to curve25519
-                userIDs: [{ name: username, email: email }], // you can pass multiple user IDs
-                passphrase: passphrase, // protects the private key
-                format: 'armored' // output key format, defaults to 'armored' (other options: 'binary' or 'object')
-            });
+        let keyPrivate = Buffer.from(privateKey).toString('base64');
 
-            let keyPrivate = Buffer.from(privateKey).toString('base64');
-            let keyPublic = Buffer.from(publicKey).toString('base64');
-
-            let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_id = '${fk_pengguna}'`;
-            try {
-                connection.query(sql, function (err, res) {
-                    if (res.length < 1) {
-                        // error internal
-                        result.status(500).send({ message: 'Logged in User and email mismatch' })
-                    } else {
-                        // get pengguna success
-                        if(res.length < 1){
-                            let sqlEmptyKunci = `UPDATE kunci SET kunci_status = 0 WHERE fk_pengguna = '${fk_pengguna}'`;
-                            connection.query(sqlEmptyKunci, function (err, res) {
-                                console.log(res);
-                            })
-                        }
-
-                        let sqlKunci = `INSERT INTO kunci (kunci_id, kunci_content, fk_pengguna, kunci_status) VALUES ( NULL,'${keyPublic}', '${res[0].pengguna_id}', '1')`;
-                
-                        connection.query(sqlKunci, function (err, res2) {
-                            if (err) {
-                                console.log("Error starts here : " + err);
-                                // error internal
-                                result.status(500).send({ message: 'Something went wrong please try again' })
-                            } else {
-                                // insert success
-                                result.status(200).json({ message: 'Key Generated Succesfully',
-                                key: {
-                                    private: keyPrivate,
-                                    public: keyPublic
-                                }})
-                            }
+        let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_id = '${fk_pengguna}'`;
+        try {
+            connection.query(sql, function (err, res) {
+                if (res.length < 1) {
+                    // error internal
+                    result.status(500).send({ message: 'Logged in User and email mismatch' })
+                } else {
+                    // get pengguna success
+                    if(res.length < 1){
+                        let sqlEmptyKunci = `UPDATE kunci SET kunci_status = 0 WHERE fk_pengguna = '${fk_pengguna}'`;
+                        connection.query(sqlEmptyKunci, function (err, res) {
+                            console.log(res);
                         })
                     }
-                })
-            } catch (error) {
-                console.log(error);
-            }
+
+                    let sqlKunci = `INSERT INTO kunci (kunci_id, kunci_content, fk_pengguna, kunci_status) VALUES ( NULL,'${keyPublic}', '${res[0].pengguna_id}', '1')`;
             
-        };
+                    connection.query(sqlKunci, function (err, res2) {
+                        if (err) {
+                            console.log("Error starts here : " + err);
+                            // error internal
+                            result.status(500).send({ message: 'Something went wrong please try again' })
+                        } else {
+                            // insert success
+                            result.status(200).json({ message: 'Key Generated Succesfully' })
+                        }
+                    })
+                }
+            })
+        } catch (error) {
+            console.log(error);
+        }
     }
 });
 
 app.post("/file/encryption", upload.single('file'), (req, result) => {
-    let originalname = req.file.originalname;
-    let filename = req.file.filename;
-    let filepath = req.file.path;
-    let email = req.body.email;
-    let passwordFile = req.body.passwordFile;
-    let id_pengirim = req.body.id_pengirim;
-
-    let errEmail = validateEmail(email); // validate email
+    let email_penerima = req.body.email;
+    let file_name = req.body.file_name;
+    let file_name_split = file_name.split('.');
+    let new_file_name = file_name_split[0];
+    let errEmail = validateEmail(email_penerima); // validate email
 
     if (errEmail.length) {
         result.json(400, {
@@ -334,161 +276,86 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
         });
     }
     else {
-        //mencari id penerima 
-        let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}'`;
-    
-        connection.query(sql, function (err, res) {
-            if (err) {
-                console.log("Error starts here : " + err);
-                // error internal
-                result.status(500).send({ message: 'Select pengguna fail' })
-            } else {
-                // get id penerima success
-                console.log("get id penerima sukses");
-                let pengguna_id = res[0].pengguna_id;
-                let sqlKunci = `SELECT * FROM KUNCI WHERE fk_pengguna = '${pengguna_id}'`;
+        if(file_name.includes(".txt")){
+            let file_content = req.body.file;
+            let id_pengirim = req.body.id_pengirim;
+            let file_directory = './public/data/uploads/';
+            var filename = id_pengirim + 'to' + email_penerima + new_file_name;
+            let full_directory = file_directory + filename;
+            //filename juga akan digunakan sebagai history_link (kode download)
 
-                connection.query(sqlKunci, function (err, res2) {
-                    if (err) {
-                        console.log("Error starts here : " + err);
-                        // error internal
-                        result.status(500).send({ message: 'Select kunci fail' })
-                    } else {
-                        // select fk pengguna di tabel kunci success
-                        console.log("get fk pengguna sukses");
-                        let encodedPublicKey = res2[0].kunci_content;
-                        let buff = Buffer.from(encodedPublicKey, 'base64');
-                        let publicKeyArmored = buff.toString('utf-8');
+            fs.writeFileSync(full_directory, file_content);
+            console.log("File written in Server in : " + file_directory + filename);
 
-                        // tipe text jangan lupa tambahkan untuk tipe zip lihat github
-                        // pengecekan tipe extension
-                        if(originalname.includes(".txt")){
-                            enkrip();
-                            async function enkrip() {
-                                const plainData = fs.readFileSync(filepath,'utf8');
-                                const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
-    
-                                const encrypted = await openpgp.encrypt({
-                                    message: await openpgp.createMessage({text: plainData}),
-                                    encryptionKeys: publicKey
-                                });
-    
-                                console.log(encrypted);
-                                let fk_penerima = res2[0].fk_pengguna;
-                                let filepathBaru = "\\" + filename;
-                                let date_now = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
-    
-                                // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
-                                let sqlHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filepathBaru}','${id_pengirim}','${fk_penerima}', '${date_now}', '1')`;
-                                connection.query(sqlHistory, function (err, res3) {
-                                    if (err) {
-                                        console.log("Error starts here : " + err);
-                                        // error internal
-                                        result.status(500).send({ message: 'Insert History fail' })
-                                    } else {
-                                        // history success
-                                        console.log("insert history sukses");
-    
-                                        let sqlGetHistoryId = `SELECT * FROM history WHERE history_link = '${filepathBaru}'`;
-                                        connection.query(sqlGetHistoryId, function (err, res4) {
-                                            if (err) {
-                                                console.log("Error starts here : " + err);
-                                                // error internal
-                                                result.status(500).send({ message: 'Insert History fail' })
-                                            } else {
-                                                // ambil data history
-                                                let fk_history = res4[0].history_id;
-                                                let filepathServer = "public\\" + filepathBaru;
-                                                //file content adalah filepath pada directory server
-                                                let sqlFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${filepathServer}','txt','${fk_history}', '1')`;
-                                                connection.query(sqlFile, function (err, res5) {
-                                                    if (err) {
-                                                        console.log("Error starts here : " + err);
-                                                        // error internal
-                                                        result.status(500).send({ message: 'Insert History fail' })
-                                                    } else {
-                                                        // history success
-                                                        console.log("insert file sukses");
-    
-                                                        fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
-                                                        result.status(200).json({ message: 'File Encrypted Succesfully', 
-                                                        download_link: filename})
-                                                    }
-                                                })
-                                            }
-                                        })
-                                    }
-                                })
-                            };
-                        }else if(originalname.includes(".zip")){
-                            // jika zip
-                            enkrip();
-                            async function enkrip() {
-                                const fileToUint8Array = fs.readFileSync(filepath);
+            let date_now = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
 
-                                const fileForOpenPGP = await openpgp.createMessage({ binary: new Uint8Array(fileToUint8Array) });
-                                
-                                console.log(fileToUint8Array);
-                                const message = await openpgp.createMessage({ binary: fileToUint8Array });
-                                const encrypted = await openpgp.encrypt({
-                                    message, // input as Message object
-                                    passwords: [passwordFile], // multiple passwords possible
-                                    format: 'binary' // don't ASCII armor (for Uint8Array output)
-                                });
-
-                                let fk_penerima = res2[0].fk_pengguna;
-                                let filepathBaru = "\\" + filename ;
-                                let date_now = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
-
-                                // filepathBaru disimpan pada tabel history di history_link. filepath pada history adalah link www sedangkan pada file adalah directory untuk akses pada server
-                                let sqlHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filepathBaru}','${id_pengirim}','${fk_penerima}', '${date_now}', '1')`;
-                                connection.query(sqlHistory, function (err, res3) {
-                                    if (err) {
-                                        console.log("Error starts here : " + err);
-                                        // error internal
-                                        result.status(500).send({ message: 'Insert History fail' })
-                                    } else {
-                                        // history success
-                                        console.log("insert history sukses");
-    
-                                        let sqlGetHistoryId = `SELECT * FROM history WHERE history_link = '${filepathBaru}'`;
-                                        connection.query(sqlGetHistoryId, function (err, res4) {
-                                            if (err) {
-                                                console.log("Error starts here : " + err);
-                                                // error internal
-                                                result.status(500).send({ message: 'Insert History fail' })
-                                            } else {
-                                                // ambil data history
-                                                let fk_history = res4[0].history_id;
-                                                let filepathServer = "public\\" + filepathBaru;
-                                                //file content adalah filepath pada directory server
-                                                let sqlFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${filepathServer}','zip','${fk_history}', '1')`;
-                                                connection.query(sqlFile, function (err, res5) {
-                                                    if (err) {
-                                                        console.log("Error starts here : " + err);
-                                                        // error internal
-                                                        result.status(500).send({ message: 'Insert History fail' })
-                                                    } else {
-                                                        // history success
-                                                        console.log("insert file sukses");
-    
-                                                        fs.writeFileSync(__dirname + "\\public\\" + filepathBaru, encrypted);
-                                                        result.status(200).json({ message: 'File Encrypted Succesfully', 
-                                                        download_link: filepathBaru})
-                                                    }
-                                                })
-                                            }
-                                        })
-                                    }
-                                })
-                            };
-                        }else{
-                            result.status(500).send({ message: 'File not supported' })
+            let sqlGetIDPenerima = `SELECT pengguna_id FROM pengguna WHERE pengguna_email  = '${email_penerima}'`
+            
+            connection.query(sqlGetIDPenerima, function (err, res) {
+                if (err) {
+                    result.status(500).send({ message: 'Get ID Penerima Fail' })
+                } else {
+                    let id_penerima = res[0].pengguna_id;
+                    let insertHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${filename}','${id_pengirim}','${id_penerima}', '${date_now}', '1')`;
+            
+                    connection.query(insertHistory, function (err, res2) {
+                        if (err) {
+                            result.status(500).send({ message: 'Insert Table History Fail' })
+                        } else {
+                            let insertFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${full_directory}','txt','${res2.insertId}', '1')`;
+            
+                            connection.query(insertFile, function (err, res3) {
+                                if (err) {
+                                    result.status(500).send({ message: 'Insert Table File Fail' })
+                                } else {
+                                    result.status(200).json({ message: 'Upload Success', 
+                                    download_code: filename});
+                                }
+                            })
                         }
-                    }
-                })
-            }
-        })
+                    })
+                }
+            })
+            
+        }else if(file_name.includes(".zip")){
+            let saved_file_name = req.file.filename;
+            let saved_file_path = `public/data/uploads/` + saved_file_name;
+            console.log(saved_file_path);
+            let id_pengirim = req.body.id_pengirim;
+            //saved_file_name juga akan digunakan sebagai history_link (kode download)
+
+            let date_now = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
+
+            let sqlGetIDPenerima = `SELECT pengguna_id FROM pengguna WHERE pengguna_email  = '${email_penerima}'`
+            
+            connection.query(sqlGetIDPenerima, function (err, res) {
+                if (err) {
+                    result.status(500).send({ message: 'Get ID Penerima Fail' })
+                } else {
+                    let id_penerima = res[0].pengguna_id;
+                    let insertHistory = `INSERT INTO history (history_id, history_link, history_fk_sender, history_fk_receiver, history_time, history_status) VALUES ( NULL,'${saved_file_name}','${id_pengirim}','${id_penerima}', '${date_now}', '1')`;
+            
+                    connection.query(insertHistory, function (err, res2) {
+                        if (err) {
+                            result.status(500).send({ message: 'Insert Table History Fail' })
+                        } else {
+                            let insertFile = `INSERT INTO file (file_id, file_content, file_type, fk_history, file_status) VALUES ( NULL,'${saved_file_path}','zip','${res2.insertId}', '1')`;
+            
+                            connection.query(insertFile, function (err, res3) {
+                                if (err) {
+                                    result.status(500).send({ message: 'Insert Table File Fail' })
+                                } else {
+                                    result.status(200).json({ message: 'Upload Success', 
+                                    download_code: saved_file_name});
+                                }
+                            })
+                        }
+                    })
+                }
+            })
+        }else{
+            result.status(500).send({ message: 'File not supported' })
+        }
     }
 });
 
@@ -594,6 +461,26 @@ app.get('/download/:directory', (req, res)=>{
     console.log("ini directory pada /download : " + filename + ".zip");
 
     res.download(path.resolve( __dirname + "\\public\\" + filename + ".zip"));
+});
+
+app.get('/getPubKey/:email', (req, result)=>{
+    var email = req.params.email;
+    // belom diganti cari public key dan kembalikan public
+    let sqlPublicKey = `SELECT k.kunci_content FROM kunci k, pengguna p WHERE p.pengguna_email = '${email}' AND k.fk_pengguna = p.pengguna_id AND k.kunci_status = '1'`;
+
+    connection.query(sqlPublicKey, function (err, res) {
+        if (err) {
+            console.log("Error starts here : " + err);
+            // error internal
+            result.status(500).send({ message: 'Get Public Key fail' })
+        } else {
+            // history success
+            console.log("Get Public Key Sukses");
+
+            result.status(200).json({ message: 'Public Key Get', 
+            pubkey: res[0].kunci_content});
+        }
+    })
 });
 
 app.get('/upload/history/:id_pengirim', (req, result)=>{
