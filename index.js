@@ -208,9 +208,10 @@ app.post("/key/generate", (req, result) => {
     let username = req.body.username;
     let passphrase = req.body.passphrase;
     let fk_pengguna = req.body.fk_pengguna;
+    let pubkey_upload = req.body.pubkey_upload;
     
     let errEmail = validateEmail(email); // validate email
-    let errUsername = validateUsername(email); // validate username
+    let errUsername = validateUsername(username); // validate username
 
     if (errEmail.length || errUsername.length) {
         console.log("masuk if");
@@ -223,8 +224,7 @@ app.post("/key/generate", (req, result) => {
         });
     }
     else {
-        let keyPrivate = Buffer.from(privateKey).toString('base64');
-
+        // bikin supaya menerima public key dari vue yang berupa base64 dan disimpan pada key
         let sql = `SELECT * FROM PENGGUNA WHERE pengguna_email = '${email}' AND pengguna_id = '${fk_pengguna}'`;
         try {
             connection.query(sql, function (err, res) {
@@ -233,14 +233,14 @@ app.post("/key/generate", (req, result) => {
                     result.status(500).send({ message: 'Logged in User and email mismatch' })
                 } else {
                     // get pengguna success
-                    if(res.length < 1){
+                    if(res.length == 1){
                         let sqlEmptyKunci = `UPDATE kunci SET kunci_status = 0 WHERE fk_pengguna = '${fk_pengguna}'`;
                         connection.query(sqlEmptyKunci, function (err, res) {
                             console.log(res);
                         })
                     }
 
-                    let sqlKunci = `INSERT INTO kunci (kunci_id, kunci_content, fk_pengguna, kunci_status) VALUES ( NULL,'${keyPublic}', '${res[0].pengguna_id}', '1')`;
+                    let sqlKunci = `INSERT INTO kunci (kunci_id, kunci_content, fk_pengguna, kunci_status) VALUES ( NULL,'${pubkey_upload}', '${res[0].pengguna_id}', '1')`;
             
                     connection.query(sqlKunci, function (err, res2) {
                         if (err) {
@@ -279,7 +279,7 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
         if(file_name.includes(".txt")){
             let file_content = req.body.file;
             let id_pengirim = req.body.id_pengirim;
-            let file_directory = './public/data/uploads/';
+            let file_directory = `./public/data/uploads/`;
             var filename = id_pengirim + 'to' + email_penerima + new_file_name;
             let full_directory = file_directory + filename;
             //filename juga akan digunakan sebagai history_link (kode download)
@@ -319,7 +319,7 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
             
         }else if(file_name.includes(".zip")){
             let saved_file_name = req.file.filename;
-            let saved_file_path = `public/data/uploads/` + saved_file_name;
+            let saved_file_path = `./public/data/uploads/` + saved_file_name;
             console.log(saved_file_path);
             let id_pengirim = req.body.id_pengirim;
             //saved_file_name juga akan digunakan sebagai history_link (kode download)
@@ -359,108 +359,26 @@ app.post("/file/encryption", upload.single('file'), (req, result) => {
     }
 });
 
-app.post("/file/decryption", upload.single('key'), (req, result) => {
-    
-    let downloadCode = req.body.down_code;
-    let passwordTxt = req.body.pass_txt;
+app.get('/download/:downloadCode', (req, res)=>{
+    var download_code = req.params.downloadCode;
 
-    if (!downloadCode.length) {
-        result.json(400, {
-            message: "Bad Request",
-            errors: {
-                downCode: "Download code is not given"
-            }
-        });
-    }
-    else {
-        //mencari link download dari database
-        let sql = `SELECT * FROM HISTORY WHERE history_link = '${downloadCode}'`;
-    
-        connection.query(sql, function (err, res) {
-            if (err) {
-                console.log("Error starts here : " + err);
-                // error internal
-                result.status(500).send({ message: 'Download code not Exist' })
-            } else {
-                // get id penerima success
-                console.log("get id penerima sukses");
-                let history_id = res[0].history_id;
-                let history_time = res[0].history_time;
-                let date = history_time.getDay();
-                let month = history_time.getMonth();
-                let year = history_time.getYear();
-                let newFileName = "decrypted" + date + month + year + history_id;
-                let sqlFile = `SELECT * FROM FILE WHERE fk_history = '${history_id}'`;
+    let sqlGetFile = `SELECT f.file_content, f.file_type FROM file f, history h WHERE f.fk_history = h.history_id AND h.history_link = '${download_code}' AND h.history_status = 1`;
 
-                connection.query(sqlFile, function (err, res2) {
-                    if (err) {
-                        console.log("Error starts here : " + err);
-                        // error internal
-                        result.status(500).send({ message: 'File not found' })
-                    } else {
-                        // ambil lokasi file dari database
-                        let directoryFile = res2[0].file_content;
-                        let fileType = res2[0].file_type;
+    connection.query(sqlGetFile, function (err, result) {
+        if(result[0].file_type == 'txt'){
+            const file_buffer = fs.readFileSync(__dirname + "\\" + result[0].file_content);
+            var file_text = file_buffer.toString();
+            var base64_file = Buffer.from(file_text).toString('base64');
+            res.status(200).json({ message: 'txt', download_file: base64_file});
 
-                        if(fileType == "txt"){
-                            let keyName = req.file.filename;
-                            let keyDirectory = req.file.path;
-                            const txtData = fs.readFileSync(__dirname + "\\" + directoryFile);
-                            const privateKeyArmored = fs.readFileSync(__dirname + "\\" + keyDirectory);
+        }else if(result[0].file_type == 'zip'){
+            const file_buffer = fs.readFileSync(__dirname + "\\" + result[0].file_content);
+            var file_array_buffer = new Uint8Array(file_buffer);
+            var base64_file = Buffer.from(file_array_buffer).toString('base64');
+            res.status(200).json({ message: 'zip', download_file: base64_file});
+        }
+    })
 
-                            console.log(txtData.toString());
-                            dekrip();
-                            async function dekrip() {
-                                const passphrase = passwordTxt;
-                                const privateKey = await openpgp.decryptKey({
-                                    privateKey: await openpgp.readPrivateKey({ armoredKey: privateKeyArmored.toString()}),
-                                    passphrase
-                                });
-
-                                const message = await openpgp.readMessage({
-                                    armoredMessage: txtData.toString() // parse armored message
-                                });
-                                const { data: decrypted } = await openpgp.decrypt({
-                                    message,
-                                    decryptionKeys: privateKey
-                                });
-                                console.log(decrypted); // 'Hello, World!'
-                                result.status(200).json({ message: 'txt', file: decrypted});
-                            }
-                        }else if(fileType == "zip"){
-                            const zipData = fs.readFileSync(__dirname + "\\" + directoryFile);
-
-                            dekrip();
-                            async function dekrip() {
-                                const encryptedMessage = await openpgp.readMessage({
-                                    binaryMessage: zipData // parse encrypted bytes
-                                });
-                                const { data: decrypted } = await openpgp.decrypt({
-                                    message: encryptedMessage,
-                                    passwords: [passwordTxt], // decrypt with password
-                                    format: 'binary' // output as Uint8Array
-                                });
-                                let downloadLink = __dirname + "\\public\\" + newFileName;
-                                fs.writeFileSync(downloadLink + ".zip", decrypted);
-                                console.log("Download di server sukses");
-                                console.log(downloadLink);
-
-                                result.status(200).json({ message: 'zip', 
-                                download_link: newFileName});
-                            }
-                        }
-                    }
-                })
-            }
-        })
-    }
-});
-
-app.get('/download/:directory', (req, res)=>{
-    var filename = req.params.directory;
-    console.log("ini directory pada /download : " + filename + ".zip");
-
-    res.download(path.resolve( __dirname + "\\public\\" + filename + ".zip"));
 });
 
 app.get('/getPubKey/:email', (req, result)=>{
